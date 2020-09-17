@@ -13,12 +13,14 @@ library(DBI)
 library(odbc)
 library(keyring)
 library(docstring)
+library(janitor)
 
 DIR_OF_HPOC_ROOT = "//Ncr-a_irbv2s/IRBV2/PHAC/IDPCB/CIRID/VIPS-SAR/EMERGENCY PREPAREDNESS AND RESPONSE HC4/EMERGENCY EVENT/WUHAN UNKNOWN PNEU - 2020/"
 CANADA_CASE_REPORTS = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "CANADA CASE REPORTS")
 
-PT = "MB"
-DAYS_AGO = 0
+PT = "SK"
+DAYS_AGO = 01
+
 
 
 DEF_TYPE_DB = "MS_Access"
@@ -128,14 +130,12 @@ run_many_SQL_Statments <- function(all_statements, log_fn, con_fn, from_file){
   #' 
   #' 
   
-  # if (!file.exists(log_fn)){
-  #   cat("has.complete, rows.affected, statement", file=log_fn, append=FALSE, sep = "\n")
-  # }
-  
   
   print(paste0("executing ", nrow(all_statements), " statments. Logging to '",log_fn,"'" ))
   
   # Get the results of the functions
+  
+  i = 1
   results <- 
     lapply(all_statements %>% pull(value), function(stmt){
       #print(stmt)
@@ -153,7 +153,8 @@ run_many_SQL_Statments <- function(all_statements, log_fn, con_fn, from_file){
       
       cat(L(log, wrap_with_FB = F, qts = ""), file=log_fn, append=TRUE, sep = "\n")
       
-      cat(".")
+      cat(paste0(i, ","))
+      i<<-i+1
       
       dbClearResult(ret_obj)
       
@@ -176,13 +177,14 @@ cases_df_updates <- function(
   con_fn = get_covid_cases_db_con
   ){
   #'   
-  #' reads in a Data frame and executes it
+  #'  reads in a Data frame and executes it
   #'  performs all needed updates to a database
+  #'  records updates to a log file
   #'  
 
   if(nrow(df) == 0){
-    warning(paste0("There are no updated records for '", a_pt, "'"))
-    return(NULL)
+    print(paste0("There are no updated records for '", a_pt, "'"))
+    return(TRUE)
   }
   
   
@@ -228,7 +230,11 @@ cases_df_updates <- function(
                              "Classification", var_name)
            )
   
-  
+  df_y <- 
+    df_y %>% 
+    mutate(new_value = ifelse(new_value == "*remove*",
+                             "", new_value)
+    ) 
   
 
   
@@ -277,7 +283,13 @@ cases_df_updates <- function(
                   paste0(sql_strt, Q(curr_val)," where phacid = ", Q(ids))
                   #sql_strt("UPDATE Case SET ",  col_nm, " = ", curr_val," where phacid = ", ids, con = con)
                 } else if (length(ids) > 1){
-                  paste0(sql_strt, Q(curr_val)," where phacid in ", L(ids))
+                  
+                  if(length(ids) < 50){
+                    paste0(sql_strt, Q(curr_val)," where phacid in ", L(ids))
+                  }else{
+                    ids_chunk <- split(ids, ceiling(seq_along(ids)/50))
+                    lapply(ids_chunk, function(chnk){paste0(sql_strt, Q(curr_val)," where phacid in ", L(chnk))}) %>% unlist(use.names = F)
+                  }
                   #build_sql("UPDATE Case SET ",  col_nm, " = ", curr_val," where phacid in ", ids, con = con)
                 } else{
                   NULL
@@ -304,8 +316,6 @@ cases_df_updates <- function(
  
   
   print(paste0("updated '", nrow(results) , "' statements for '", a_pt, "'. Check log file at \n'", log_fn,"'"))
-  
-  
   return(TRUE)
 }
 
@@ -323,7 +333,6 @@ cases_df_inserts <- function(
  #' logs the results
  #'
  #'
- #'
 
   tble_nm = "Case"
 
@@ -335,8 +344,8 @@ cases_df_inserts <- function(
   #df_new$approved <- "y"
   
   if(nrow(df_new) == 0){
-    warning(paste0("There are no inserted records for '", a_pt, "'"))
-    return(NULL)
+    print(paste0("There are no inserted records for '", a_pt, "'"))
+    return(TRUE)
   }
   
   
@@ -433,26 +442,44 @@ cases_df_inserts <- function(
                            con_fn = con_fn)
   # 
   print(paste0("Inserted '", nrow(results) , "' cases for '", a_pt, "'. Check log file at \n'", log_fn,"'"))
-  
+  return(TRUE)
 }
 
 Get_case_counts <- function(a_pt = PT,
                             con = get_covid_cases_db_con()){
+  #'
+  #' Say some stats about this province
+  #'
+  #'
   
   tbl(con, "Case") %>% 
    filter(PT == a_pt) %>% 
    filter(Classification %in% c("Confirmed", "Probable")) %>% 
    tally() %>% pull() %>% format() %>% 
-    paste0("After Additions deletions and updates there are ", . , " cases in ", a_pt) 
+   paste0("Currently there are ", . , " cases in ", a_pt) 
+}
+
+do_update_insert_delete <- function(...){
+  #'
+  #' Do all the inserts deletions and updates for the provice
+  #'
+  print("before Running updates and Inserts")
+  print(Get_case_counts(...))
+  tic = Sys.time()
+  ret_val <- cases_df_inserts(...)
+  print(paste("inserts took ", format(Sys.time() - tic)))
   
+  tic = Sys.time()
+  ret_val <- if (!is.null(ret_val)) cases_df_updates(...)
+  print(paste("updates took ", format(Sys.time() - tic)))
+  
+  if (!is.null(ret_val)) print(Get_case_counts(...))
+  else print(paste0("there seems to be some issue with insert of update"))
 }
 
 
-cases_df_inserts()
-cases_df_updates()
-Get_case_counts()
-
-
+#actually do something
+do_update_insert_delete(a_pt = PT)
 
 
 
