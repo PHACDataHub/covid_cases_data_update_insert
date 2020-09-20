@@ -18,8 +18,8 @@ library(janitor)
 DIR_OF_HPOC_ROOT = "//Ncr-a_irbv2s/IRBV2/PHAC/IDPCB/CIRID/VIPS-SAR/EMERGENCY PREPAREDNESS AND RESPONSE HC4/EMERGENCY EVENT/WUHAN UNKNOWN PNEU - 2020/"
 CANADA_CASE_REPORTS = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "CANADA CASE REPORTS")
 
-PT = "SK"
-DAYS_AGO = 01
+PT = "NS"
+DAYS_AGO = 0
 
 
 
@@ -172,8 +172,8 @@ cases_df_updates <- function(
   a_pt = PT,
   a_days_ago = DAYS_AGO,
   fn = paste0(a_pt, "_log_", format(Sys.Date()- a_days_ago,"%m%d"), ".xlsx"),
-  full_fn = file.path(CANADA_CASE_REPORTS, a_pt, paste0(a_pt, format(Sys.Date()- a_days_ago,"%m%d")),  fn),
-  df = readxl::read_xlsx(full_fn) %>% clean_names(),
+  full_fn = file.path(CANADA_CASE_REPORTS, a_pt, fn),# paste0(a_pt, format(Sys.Date()- a_days_ago,"%m%d")),  fn),
+  df = readxl::read_xlsx(full_fn, sheet = paste0(a_pt, "_log_", format(Sys.Date()- a_days_ago,"%m%d"))) %>% clean_names(),
   con_fn = get_covid_cases_db_con
   ){
   #'   
@@ -230,13 +230,20 @@ cases_df_updates <- function(
                              "Classification", var_name)
            )
   
+  
+  #if the new name is "DELETED", we do a special thing
   df_y <- 
     df_y %>% 
     mutate(new_value = ifelse(new_value == "*remove*",
                              "", new_value)
     ) 
   
-
+  #if the new value is NA we do a special thing
+  df_y <- 
+    df_y %>% 
+    mutate(new_value = ifelse(is.na(new_value),
+                              "", new_value)
+    ) 
   
   
   
@@ -324,8 +331,8 @@ cases_df_inserts <- function(
   a_pt = PT,
   a_days_ago = DAYS_AGO,
   fn = paste0(a_pt, "_insert_", format(Sys.Date()- a_days_ago,"%m%d"), ".xlsx"),
-  full_fn = file.path(CANADA_CASE_REPORTS, a_pt, paste0(a_pt, format(Sys.Date()- a_days_ago,"%m%d")), fn),
-  df = readxl::read_xlsx(full_fn, col_types = "text") ,#%>% clean_names(),
+  full_fn = file.path(CANADA_CASE_REPORTS, a_pt, fn),# paste0(a_pt, format(Sys.Date()- a_days_ago,"%m%d")), fn),
+  df = readxl::read_xlsx(full_fn, col_types = "text", sheet = paste0(a_pt, "_insert_", format(Sys.Date()- a_days_ago,"%m%d"))) ,#%>% clean_names(),
   con_fn = get_covid_cases_db_con
 ){
  #' Reads a log file with approvals
@@ -336,7 +343,7 @@ cases_df_inserts <- function(
 
   tble_nm = "Case"
 
-  
+  #df_new <- tibble(PHACID = c("qwer", "asdf"), PT = c("FAKE", "FAKE"), PTCaseID = c("aaaa", "mmmmm"), Approved = c("y", "y"), GO = c(NA, ""))
   
 
   df_new <- df #%>% filter(PHACReportedDate == Sys.Date() - 1)
@@ -369,7 +376,7 @@ cases_df_inserts <- function(
   }
 
   
-  
+  #Get only the approved stuffs
   df_y <- df_new %>% 
     filter(app == "y") %>% 
     select(-Approved, -app) %>% 
@@ -386,6 +393,14 @@ cases_df_inserts <- function(
   }  
   
   
+  #Remove useless columns
+  df_y <- 
+  df_y %>% select_if(function(x) 
+    any(!(is.na(x) | as.character(x) == ""))
+    )
+  
+  
+  
   # Get the columns and the fromat from the DB
   tbl_format <- tbl(con_fn(), tble_nm) %>% head(1) %>% collect() %>% slice(0)
   
@@ -396,18 +411,31 @@ cases_df_inserts <- function(
     cls <- cls[[1]]
     #print(cls)
     
-    if (is.null(df_y[[col_nm]])){
-      df_y[[col_nm]] <- ""
-    }
-    if ( cls == "POSIXct" ){
-      df_y[[col_nm]] <<- as.Date(as.integer(df_y[[col_nm]]), origin = EXCEL_DATE_ORIGIN)
-    }else{
-      df_y[[col_nm]] <<- as(df_y[[col_nm]], cls)
+    # if (is.null(df_y[[col_nm]])){
+    #   df_y[[col_nm]] <- ""
+    # }
+    if (! is.null(df_y[[col_nm]])){
+      if ( cls == "POSIXct" ){
+        df_y[[col_nm]] <<- as.Date(as.integer(df_y[[col_nm]]), origin = EXCEL_DATE_ORIGIN)
+      }else{
+        df_y[[col_nm]] <<- as(df_y[[col_nm]], cls)
+      }
     }
     return(TRUE)
   })
   
+  # # This method is quicker but does not log the inserts
+  # print(paste0("Beginning Insert of ", nrow(df_y), " records, with ", ncol(df_y), " columns into '", tble_nm, "' for PT ='", a_pt))
+  # print(paste0("Current time = ", format(Sys.time())))
+  # print(paste0("Rough estimate at 2 seconds per record ", 2*nrow(df_y)/60, " minutes"))
+  # conn = con_fn(readonly = F)
+  # ret_obj <- dbWriteTable(conn = conn, name = tble_nm, value = df_y, batch_rows = 1, overwrite = F, append = T)
+  # 
+  # return(ret_obj)
   
+  
+  
+  # This issert method is slower but it will log the inserts
   
   nms <- df_y %>% colnames() %>% L(qts = "")
   stmnt_base <- paste0("INSERT INTO " ,tble_nm, " ", nms, " VALUES ")
@@ -417,10 +445,10 @@ cases_df_inserts <- function(
 
     curr_row <- df_y %>%
         slice(irow)
-    
+
     stmnt <-
-      stmnt_base %>% 
-      paste0(  
+      stmnt_base %>%
+      paste0(
         lapply(colnames(curr_row), function(col_nm){
           as.character(curr_row[[col_nm]])
         }) %>%
@@ -432,15 +460,15 @@ cases_df_inserts <- function(
 
 
   # Get the results of the functions
-  
+
   #log_fn = file.path(CANADA_CASE_REPORTS, a_pt, paste0(fn, ".sql_log_run_", Sys.Date(), ".csv"))
   log_fn = file.path(DIR_OF_DB, paste0(NAME_DB , ".log.csv"))
-  results <- 
-    run_many_SQL_Statments(all_statements = all_statements, 
-                           log_fn = log_fn, 
+  results <-
+    run_many_SQL_Statments(all_statements = all_statements,
+                           log_fn = log_fn,
                            from_file = fn,
                            con_fn = con_fn)
-  # 
+  #
   print(paste0("Inserted '", nrow(results) , "' cases for '", a_pt, "'. Check log file at \n'", log_fn,"'"))
   return(TRUE)
 }
@@ -474,7 +502,7 @@ do_update_insert_delete <- function(...){
   print(paste("updates took ", format(Sys.time() - tic)))
   
   if (!is.null(ret_val)) print(Get_case_counts(...))
-  else print(paste0("there seems to be some issue with insert of update"))
+  else print(paste0("there seems to be some issue with insert or update..."))
 }
 
 
