@@ -15,11 +15,13 @@ library(keyring)
 library(docstring)
 library(janitor)
 
+
+
 DIR_OF_HPOC_ROOT = "//Ncr-a_irbv2s/IRBV2/PHAC/IDPCB/CIRID/VIPS-SAR/EMERGENCY PREPAREDNESS AND RESPONSE HC4/EMERGENCY EVENT/WUHAN UNKNOWN PNEU - 2020/"
 CANADA_CASE_REPORTS = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "CANADA CASE REPORTS")
 
-PT = "PE"
-DAYS_AGO = 1
+PT = "NB"
+DAYS_AGO = 2
 
 
 # we can add a suffix for weekly files
@@ -28,7 +30,6 @@ FILE_SUFFIX = ""
 
 
 DEF_TYPE_DB = "MS_Access"
-#DIR_OF_DB = file.path("~", "..", "Desktop")
 DIR_OF_DB = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "DATABASE", "MS ACCESS") 
 
 NAME_DB = "COVID-19_v2.accdb"
@@ -36,6 +37,19 @@ EXCEL_DATE_ORIGIN = "1899-12-30"
 
 
 
+TESTING_LOCAL = FALSE
+if (TESTING_LOCAL){
+  DIR_OF_DB = file.path("~", "..", "Desktop")
+  CANADA_CASE_REPORTS = file.path("~", "..", "Desktop", "input")
+}
+
+
+
+
+
+
+
+G_LIST_CON = list()
 ####################################
 #
 get_covid_cases_db_con <- function(
@@ -67,6 +81,8 @@ get_covid_cases_db_con <- function(
       con_str <- paste0(con_str , "ReadOnly=1;applicationintent=readonly;")
       
     }
+    
+    
     con <- dbConnect(odbc::odbc(),
                      .connection_string = con_str)#, encoding = "latin1")
   }else if (db_type == "xlsx"){
@@ -80,13 +96,26 @@ get_covid_cases_db_con <- function(
   {
     warning(paste0("Unknown db_type='", db_type, "'. Returning NULL from get_covid_cases_db_con"))
   }
+  
+  G_LIST_CON[length(G_LIST_CON) + 1] <<- con
   return(con)  
 }
 
 ##################################################
 # JUST Testing to see if we can get a connection
-get_covid_cases_db_con()
+#get_covid_cases_db_con()
 
+
+disconnect_all_covid_cases_db_con <- function(){
+  if (length(G_LIST_CON)  == 0 )
+    return(TRUE)
+  
+  lapply(length(G_LIST_CON):1, function(i){ 
+    dbDisconnect(G_LIST_CON[[i]])
+    G_LIST_CON[i] <<- NULL
+    
+    })
+}
 
 
 
@@ -210,6 +239,8 @@ run_many_SQL_Statments <- function(all_statements, log_fn, con_fn, from_file){
       dbClearResult(ret_obj)
       
       dbDisconnect(con)
+
+
       return(log)
     }) %>%bind_rows()
   
@@ -217,6 +248,58 @@ run_many_SQL_Statments <- function(all_statements, log_fn, con_fn, from_file){
   #write_csv(x = results, log_fn, col_names = T)
   return(results)
 }
+################################
+
+
+
+
+
+get_txt_thing <- function(
+  a_pt = PT,
+  a_type = "_log_",
+  a_days_ago = DAYS_AGO,
+  a_file_suffix = FILE_SUFFIX,
+  a_canada_case_reports = CANADA_CASE_REPORTS  
+){
+  #' Get a text string that is commonly used
+  format(Sys.Date()- a_days_ago,"%m%d") %>% 
+    paste0(a_pt, a_type,.)
+}
+
+
+get_update_txt_thing <- function(...){
+  #' Get a text string that is commonly used for updates
+  get_txt_thing(..., a_type = "_log_")
+  
+}
+get_insert_txt_thing <- function(...){
+  #' Get a text string that is commonly used for inserts
+  get_txt_thing(..., a_type = "_insert_")
+  
+}
+
+####################################
+#
+get_full_fn_for_updates <- function(
+  a_pt = PT,
+  a_file_suffix = FILE_SUFFIX,
+  a_canada_case_reports = CANADA_CASE_REPORTS,
+  ...
+){
+  #' 
+  #' 
+  #' Returns the full file name of the updates file
+  #' 
+  #' 
+  #' 
+  get_update_txt_thing(a_pt = a_pt, ...) %>% 
+    paste0(a_file_suffix ,".xlsx") %>%
+    file.path(a_canada_case_reports, a_pt, .)
+  
+}
+get_full_fn_for_updates()
+
+
 
 
 
@@ -224,12 +307,11 @@ run_many_SQL_Statments <- function(all_statements, log_fn, con_fn, from_file){
 ####################################
 #
 cases_df_updates <- function(
-  a_pt = PT,
-  a_days_ago = DAYS_AGO,
-  fn = paste0(a_pt, "_log_", format(Sys.Date()- a_days_ago,"%m%d"), FILE_SUFFIX ,".xlsx"),
-  full_fn = file.path(CANADA_CASE_REPORTS, a_pt, fn),# paste0(a_pt, format(Sys.Date()- a_days_ago,"%m%d")),  fn),
-  df = readxl::read_xlsx(full_fn, sheet = paste0(a_pt, "_log_", format(Sys.Date()- a_days_ago,"%m%d"))) %>% clean_names(),
-  con_fn = get_covid_cases_db_con
+  full_fn = get_full_fn_for_updates(),
+  df = readxl::read_xlsx(path = full_fn, 
+                         sheet = get_update_txt_thing()) %>% clean_names(),
+  con_fn = get_covid_cases_db_con,
+  a_tble_nm = "case"
   ){
   #'   
   #'  reads in a Data frame and executes it
@@ -325,7 +407,7 @@ cases_df_updates <- function(
   #vars to update
   vars <- df_y$var_name %>% unique()
   
-  tble_nm = "Case"
+  tble_nm = a_tble_nm
   
   # Get the statments to execute
   all_statements <- 
@@ -379,12 +461,45 @@ cases_df_updates <- function(
   results <- 
     run_many_SQL_Statments(all_statements = all_statements, 
                          log_fn = log_fn, 
-                         from_file = fn,
+                         from_file = basename(full_fn)
+                         ,
                          con_fn = con_fn)
  
-  print(paste0("updated '", nrow(results) , "' statements for '", a_pt, "'. Check log file at \n'", log_fn,"'"))
+  print(paste0("updated '", nrow(results) , "' statements. Check log file at \n'", log_fn,"'"))
   return(TRUE)
 }
+
+
+
+
+
+
+
+####################################
+#
+get_full_fn_for_inserts <- function(
+  a_pt = PT,
+  a_file_suffix = FILE_SUFFIX,
+  a_canada_case_reports = CANADA_CASE_REPORTS,
+  ...
+){
+  #' 
+  #' 
+  #' Returns the full file name of the updates file
+  #' 
+  #' 
+  #' 
+  get_insert_txt_thing(a_pt = a_pt, ...) %>% 
+    paste0(a_file_suffix ,".xlsx") %>%
+    file.path(a_canada_case_reports, a_pt, .)
+  
+}
+get_full_fn_for_inserts()
+
+
+
+
+
 
 
 
@@ -392,12 +507,13 @@ cases_df_updates <- function(
 ####################################
 #
 cases_df_inserts <- function(
-  a_pt = PT,
-  a_days_ago = DAYS_AGO,
-  fn = paste0(a_pt, "_insert_", format(Sys.Date()- a_days_ago,"%m%d"), FILE_SUFFIX, ".xlsx"),
-  full_fn = file.path(CANADA_CASE_REPORTS, a_pt, fn),# paste0(a_pt, format(Sys.Date()- a_days_ago,"%m%d")), fn),
-  df = readxl::read_xlsx(full_fn, col_types = "text", sheet = paste0(a_pt, "_insert_", format(Sys.Date()- a_days_ago,"%m%d"))) ,#%>% clean_names(),
-  con_fn = get_covid_cases_db_con
+  full_fn = get_full_fn_for_inserts(),
+  df = readxl::read_xlsx(path = full_fn, 
+                         col_types = "text", 
+                         sheet = get_insert_txt_thing()
+                         ) ,#%>% clean_names(),
+  con_fn = get_covid_cases_db_con,
+  a_tble_nm = "case"
 ){
   #' Reads a log file with approvals
   #' Executes changes to a DB
@@ -410,7 +526,7 @@ cases_df_inserts <- function(
   #'  @param df dataframe to proccess
   #'  @param con_fn connection function to call when we need a DB connection
   
-  tble_nm = "Case_tmp"
+  tble_nm = a_tble_nm
 
   df_new <- df #%>% filter(PHACReportedDate == Sys.Date() - 1)
 
@@ -527,13 +643,13 @@ cases_df_inserts <- function(
   results <-
     run_many_SQL_Statments(all_statements = all_statements,
                            log_fn = log_fn,
-                           from_file = fn,
+                           from_file = basename(full_fn),
                            con_fn = con_fn)
   
   
   ##############################################
   # print results for user
-  print(paste0("Inserted '", nrow(results) , "' cases for '", a_pt, "'. Check log file at \n'", log_fn,"'"))
+  print(paste0("Inserted '", nrow(results) , "' cases. Check log file at \n'", log_fn,"'"))
   return(TRUE)
 }
 
@@ -565,7 +681,8 @@ do_update_insert_delete <- function(...){
   #' Do all the inserts deletions and updates for the provice
   #'
   print("before Running updates and Inserts")
-  print(Get_case_counts(...))
+  print(Get_case_counts())
+  
   tic = Sys.time()
   ret_val <- cases_df_inserts(...)
   print(paste("inserts took ", format(Sys.time() - tic)))
@@ -596,4 +713,4 @@ do_update_insert_delete()
 #cases_df_updates()
 
 
-
+disconnect_all_covid_cases_db_con()
