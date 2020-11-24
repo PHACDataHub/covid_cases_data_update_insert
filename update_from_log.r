@@ -10,8 +10,8 @@ gc()
 DIR_OF_HPOC_ROOT = "//Ncr-a_irbv2s/IRBV2/PHAC/IDPCB/CIRID/VIPS-SAR/EMERGENCY PREPAREDNESS AND RESPONSE HC4/EMERGENCY EVENT/WUHAN UNKNOWN PNEU - 2020/"
 CANADA_CASE_REPORTS = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "CANADA CASE REPORTS")
 
-PT = "SK"
-DAYS_AGO = 1
+PT = "NS"
+DAYS_AGO = 0
 
 
 # we can add a suffix for weekly files
@@ -68,7 +68,7 @@ if (TESTING_LOCAL){
 #
 do_update_insert_delete <- function(...){
   #'
-  #' Do all the inserts deletions and updates for the provice
+  #' Do all the inserts deletions and updates for the province
   #'
   print("before Running updates and Inserts")
   print(Get_case_counts())
