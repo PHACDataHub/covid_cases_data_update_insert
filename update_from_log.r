@@ -7,13 +7,13 @@ gc()
 
 
 
-DIR_OF_HPOC_ROOT = "//Ncr-a_irbv2s/IRBV2/PHAC/IDPCB/CIRID/VIPS-SAR/EMERGENCY PREPAREDNESS AND RESPONSE HC4/EMERGENCY EVENT/WUHAN UNKNOWN PNEU - 2020/"
-CANADA_CASE_REPORTS = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "CANADA CASE REPORTS")
 
-PT = "NS"
-DAYS_AGO = 0
+#DIR_OF_HPOC_ROOT = "//Ncr-a_irbv2s/IRBV2/PHAC/IDPCB/CIRID/VIPS-SAR/EMERGENCY PREPAREDNESS AND RESPONSE HC4/EMERGENCY EVENT/WUHAN UNKNOWN PNEU - 2020/"
+#CANADA_CASE_REPORTS = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "CANADA CASE REPORTS")
+CANADA_CASE_REPORTS = file.path("~", "..", "Desktop", "C DRIVE CASE REPORTS")
 
-
+PT = "SK"
+DAYS_AGO = 1
 # we can add a suffix for weekly files
 #FILE_SUFFIX = "_weekly"
 FILE_SUFFIX = ""
@@ -24,7 +24,7 @@ DEF_TYPE_DB = "MS_Access"
 
 ##################################
 # If updates are small you can leave DB on network drive
-#DIR_OF_DB = file.path(DIR_OF_HPOC_ROOT, "DATA AND ANALYSIS", "DATABASE", "MS ACCESS") 
+#DIR_OF_DB = file.path(DIR_OF_HPOC_ROOT, "DATA  AND ANALYSIS", "DATABASE", "MS ACCESS") 
 
 ##################################
 # FOR LARGE UPDATES LIKE QC or AB or even ON, copy to desktop and run 
